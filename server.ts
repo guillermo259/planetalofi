@@ -222,6 +222,8 @@ app.get(['/health', '/api/health'], (_req, res) => {
     status: 'ok',
     tracks: radioState.tracks.length,
     listeners: presence.getSnapshot().total,
+    // Solo agregados por país: ni IPs ni ciudades.
+    geo: presence.getGeoSummary(),
   });
 });
 

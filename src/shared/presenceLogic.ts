@@ -70,6 +70,19 @@ export interface PresenceStoreOptions {
   maxCities?: number;
 }
 
+export interface CountryPresenceSummary {
+  code: string;
+  name: string;
+  listeners: number;
+}
+
+/** Agregado anónimo para /api/health: países y sesiones sin ubicación. */
+export interface GeoSummary {
+  located: number;
+  unknown: number;
+  countries: CountryPresenceSummary[];
+}
+
 const DEFAULT_MAX_CITIES = 500;
 
 // Bucket compartido para sesiones que exceden el máximo de ciudades.
@@ -217,5 +230,40 @@ export class PresenceStore {
       total: this.sessions.size,
       cities: diffCities,
     };
+  }
+
+  /**
+   * Recuento por país, sin IPs ni ciudades: solo agregados para comprobar la
+   * geolocalización tras el despliegue.
+   */
+  getGeoSummary(): GeoSummary {
+    const byCountry = new Map<string, CountryPresenceSummary>();
+    let located = 0;
+    let unknown = 0;
+
+    for (const city of this.cities.values()) {
+      const code = city.countryCode.trim().toUpperCase();
+      if (!code) {
+        unknown += city.n;
+        continue;
+      }
+      located += city.n;
+      const entry = byCountry.get(code);
+      if (entry) {
+        entry.listeners += city.n;
+      } else {
+        byCountry.set(code, {
+          code,
+          name: city.country.trim() || code,
+          listeners: city.n,
+        });
+      }
+    }
+
+    const countries = Array.from(byCountry.values()).sort(
+      (a, b) => b.listeners - a.listeners || a.code.localeCompare(b.code),
+    );
+
+    return { located, unknown, countries };
   }
 }

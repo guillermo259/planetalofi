@@ -241,3 +241,38 @@ test('PresenceStore caps the number of tracked cities', () => {
   store.addSession('d', city('d'), 1);
   assert.equal(store.getSnapshot().cities.length, 3);
 });
+
+test('PresenceStore summarizes listeners by country without cities or IPs', () => {
+  const store = new PresenceStore();
+  const city = (
+    key: string,
+    name: string,
+    country: string,
+    countryCode: string,
+  ) => ({ key, name, region: '', country, countryCode, lat: null, lon: null });
+
+  store.addSession('a', city('madrid-md-es', 'Madrid', 'España', 'ES'), 1);
+  store.addSession('b', city('barcelona-ct-es', 'Barcelona', 'España', 'ES'), 1);
+  store.addSession('c', city('country-us', 'Estados Unidos', 'Estados Unidos', 'US'), 1);
+  store.addSession('d', city('unknown', '', '', ''), 1);
+
+  assert.deepEqual(store.getGeoSummary(), {
+    located: 3,
+    unknown: 1,
+    countries: [
+      { code: 'ES', name: 'España', listeners: 2 },
+      { code: 'US', name: 'Estados Unidos', listeners: 1 },
+    ],
+  });
+
+  store.removeSession('a');
+  assert.deepEqual(store.getGeoSummary().countries[0], {
+    code: 'ES',
+    name: 'España',
+    listeners: 1,
+  });
+
+  // located + unknown siempre suma el total de oyentes.
+  const summary = store.getGeoSummary();
+  assert.equal(summary.located + summary.unknown, store.getTotal());
+});

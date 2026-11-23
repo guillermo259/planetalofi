@@ -107,6 +107,54 @@ test('resolveClientIp only trusts the configured proxy hops', () => {
   assert.equal(resolveClientIp({}, '9.9.9.9', 1), '9.9.9.9');
 });
 
+test('resolveClientIp skips private proxy hops to reach the real client', () => {
+  assert.equal(
+    resolveClientIp(
+      { 'x-forwarded-for': '203.0.113.9, 172.18.0.2' },
+      '172.18.0.3',
+      1,
+    ),
+    '203.0.113.9',
+  );
+  assert.equal(
+    resolveClientIp(
+      { 'x-forwarded-for': '203.0.113.9, 10.0.0.5, 172.18.0.2' },
+      '172.18.0.3',
+      1,
+    ),
+    '203.0.113.9',
+  );
+  // Cadena completamente interna: se cae al socket.
+  assert.equal(
+    resolveClientIp(
+      { 'x-forwarded-for': '10.1.2.3, 172.18.0.2' },
+      '172.18.0.3',
+      1,
+    ),
+    '172.18.0.3',
+  );
+  // CF-Connecting-IP como respaldo si la cadena no aporta una IP pública.
+  assert.equal(
+    resolveClientIp(
+      { 'x-forwarded-for': '172.18.0.2', 'cf-connecting-ip': '203.0.113.9' },
+      '172.18.0.3',
+      1,
+    ),
+    '203.0.113.9',
+  );
+});
+
+test('resolveLocationFromRequest resolves the client behind extra proxy hops', () => {
+  const resolved = resolveLocationFromRequest(
+    { 'x-forwarded-for': '8.8.8.8, 172.18.0.2' },
+    '172.18.0.3',
+    () => ({ city: 'Madrid', region: 'MD', country: 'ES', ll: [40.4168, -3.7038] }),
+    { trustedProxyHops: 1 },
+  );
+  assert.equal(resolved.key, 'madrid-md-es');
+  assert.equal(resolved.name, 'Madrid');
+});
+
 test('resolveLocationFromRequest ignores and clamps spoofable geo headers', () => {
   const longName = 'X'.repeat(400);
 

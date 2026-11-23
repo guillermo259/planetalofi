@@ -84,8 +84,10 @@ export interface GeoLookupResult {
 /**
  * Resolves the client IP honoring only the configured number of trusted
  * proxies. With trustedProxyHops = 0 the socket address is authoritative.
- * X-Forwarded-For is read from the right (the entry appended by the outermost
- * trusted proxy), never from the left where clients can inject values.
+ *
+ * X-Forwarded-For is read from the right (the entry added by the trusted
+ * proxy) and walks left past private addresses, so a chain with extra internal
+ * hops still resolves the real client instead of a proxy container IP.
  */
 export function resolveClientIp(
   headers: Record<string, string | string[] | undefined>,
@@ -100,13 +102,22 @@ export function resolveClientIp(
         .split(',')
         .map((part) => part.trim())
         .filter(Boolean);
-      const index = hops.length - trustedProxyHops;
-      if (index >= 0 && hops[index]) return stripIpv6Prefix(hops[index]);
+      for (
+        let index = Math.max(0, hops.length - trustedProxyHops);
+        index >= 0;
+        index -= 1
+      ) {
+        const candidate = stripIpv6Prefix(hops[index]);
+        if (!isPrivateOrLoopbackIp(candidate)) return candidate;
+      }
     }
 
     const cfIp = headers['cf-connecting-ip'];
     const rawCf = Array.isArray(cfIp) ? cfIp[0] : cfIp;
-    if (rawCf) return stripIpv6Prefix(rawCf.trim());
+    if (rawCf) {
+      const candidate = stripIpv6Prefix(rawCf.trim());
+      if (!isPrivateOrLoopbackIp(candidate)) return candidate;
+    }
   }
 
   if (socketRemoteAddress) return stripIpv6Prefix(socketRemoteAddress.trim());

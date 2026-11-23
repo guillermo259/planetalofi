@@ -540,6 +540,14 @@ async function start(): Promise<void> {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Planeta Lo-Fi server listening on http://localhost:${PORT}`);
+    console.log(
+      `[server] client IP: hops=${TRUSTED_PROXY_HOPS} cf-headers=${TRUST_CF_HEADERS ? 'on' : 'off'}`,
+    );
+    if (IS_PRODUCTION && TRUSTED_PROXY_HOPS === 0) {
+      console.warn(
+        '[server] TRUST_PROXY_HOPS=0: geo and per-IP limits use the socket address. Set 1 behind a reverse proxy.',
+      );
+    }
   });
 }
 

@@ -22,12 +22,12 @@ COPY src/shared ./src/shared
 RUN mkdir -p /app/data
 
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=3090
 ENV DATA_DIR=/app/data
 
-EXPOSE 3001
+EXPOSE 3090
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3001) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3090) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "server.ts"]

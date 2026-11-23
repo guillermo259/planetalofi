@@ -81,20 +81,42 @@ export interface GeoLookupResult {
   ll?: [number, number] | null;
 }
 
+/** 'auto' = confiar en cabeceras solo si el par directo es un proxy interno. */
+export type ProxyTrust = number | 'auto';
+
 /**
- * Resolves the client IP honoring only the configured number of trusted
- * proxies. With trustedProxyHops = 0 the socket address is authoritative.
+ * Resolves the client IP without requiring the operator to count proxy hops.
  *
- * X-Forwarded-For is read from the right (the entry added by the trusted
- * proxy) and walks left past private addresses, so a chain with extra internal
- * hops still resolves the real client instead of a proxy container IP.
+ * - 'auto' (default): headers are used only when the direct peer is a private
+ *   address, which means a reverse proxy is in front. A direct public peer is
+ *   authoritative, so clients cannot forge their IP.
+ * - 0: never trust headers. N: start N entries from the right.
+ *
+ * X-Forwarded-For is read from the right (the entry added by the proxy) and
+ * walks left past private addresses, so chains with extra internal hops still
+ * resolve the real client instead of a proxy container IP.
  */
 export function resolveClientIp(
   headers: Record<string, string | string[] | undefined>,
   socketRemoteAddress: string | undefined,
-  trustedProxyHops = 0,
+  trust: ProxyTrust = 'auto',
+  trustCfConnectingIp = false,
 ): string | null {
-  if (trustedProxyHops > 0) {
+  const socketIp = socketRemoteAddress
+    ? stripIpv6Prefix(socketRemoteAddress.trim())
+    : null;
+  const useHeaders =
+    typeof trust === 'number' ? trust > 0 : isPrivateOrLoopbackIp(socketIp);
+
+  if (useHeaders) {
+    const cfIpHeader = headers['cf-connecting-ip'];
+    const rawCf = Array.isArray(cfIpHeader) ? cfIpHeader[0] : cfIpHeader;
+    const cfIp = rawCf ? stripIpv6Prefix(rawCf.trim()) : null;
+    // Solo con Cloudflare declarado: si no, el cliente puede falsificarlo.
+    if (trustCfConnectingIp && cfIp && !isPrivateOrLoopbackIp(cfIp)) {
+      return cfIp;
+    }
+
     const xff = headers['x-forwarded-for'];
     const rawXff = Array.isArray(xff) ? xff.join(',') : xff;
     if (rawXff) {
@@ -102,8 +124,9 @@ export function resolveClientIp(
         .split(',')
         .map((part) => part.trim())
         .filter(Boolean);
+      const trustedHops = typeof trust === 'number' ? Math.max(1, trust) : 1;
       for (
-        let index = Math.max(0, hops.length - trustedProxyHops);
+        let index = Math.max(0, hops.length - trustedHops);
         index >= 0;
         index -= 1
       ) {
@@ -111,17 +134,9 @@ export function resolveClientIp(
         if (!isPrivateOrLoopbackIp(candidate)) return candidate;
       }
     }
-
-    const cfIp = headers['cf-connecting-ip'];
-    const rawCf = Array.isArray(cfIp) ? cfIp[0] : cfIp;
-    if (rawCf) {
-      const candidate = stripIpv6Prefix(rawCf.trim());
-      if (!isPrivateOrLoopbackIp(candidate)) return candidate;
-    }
   }
 
-  if (socketRemoteAddress) return stripIpv6Prefix(socketRemoteAddress.trim());
-  return null;
+  return socketIp;
 }
 
 function stripIpv6Prefix(ip: string): string {
@@ -192,9 +207,9 @@ function isValidLongitude(value: number): boolean {
 }
 
 export interface GeoResolutionOptions {
-  /** Nº de proxies de confianza delante del proceso (0 = ninguno). */
-  trustedProxyHops?: number;
-  /** Aceptar cabeceras CF-* (solo si Cloudflare está delante). */
+  /** Nº de proxies de confianza, o 'auto' (por defecto). */
+  trustedProxyHops?: ProxyTrust;
+  /** Aceptar CF-Connecting-IP y cabeceras CF-* (Cloudflare delante). */
   trustCfHeaders?: boolean;
 }
 
@@ -211,7 +226,7 @@ export function resolveLocationFromRequest(
   geoLookupFn: (ip: string) => GeoLookupResult | null,
   options: GeoResolutionOptions = {},
 ): ResolvedCityMetadata {
-  const trustedProxyHops = Math.max(0, options.trustedProxyHops ?? 0);
+  const trustedProxyHops = options.trustedProxyHops ?? 'auto';
   const trustCfHeaders = options.trustCfHeaders === true;
 
   // 1. Cloudflare proxy headers (opt-in, clamped)
@@ -264,7 +279,12 @@ export function resolveLocationFromRequest(
   }
 
   // 2. Offline GeoIP lookup on non-private IP (discarded immediately)
-  const ip = resolveClientIp(headers, socketRemoteAddress, trustedProxyHops);
+  const ip = resolveClientIp(
+    headers,
+    socketRemoteAddress,
+    trustedProxyHops,
+    trustCfHeaders,
+  );
   if (ip && !isPrivateOrLoopbackIp(ip)) {
     const geo = geoLookupFn(ip);
     if (geo && geo.country) {

@@ -15,6 +15,7 @@ import { initDatabase } from './src/server/db.ts';
 import {
   resolveClientIp,
   resolveLocationFromRequest,
+  type ProxyTrust,
 } from './src/shared/geoResolver.ts';
 import { PresenceStore } from './src/shared/presenceLogic.ts';
 import type { ClientWsMessage, ServerWsMessage } from './src/shared/types.ts';
@@ -33,11 +34,15 @@ const CONFIGURED_ORIGINS = parseAllowedOrigins(
   process.env.ALLOWED_ORIGINS,
 );
 
-// Nº de proxies de confianza delante del proceso (0 = conexión directa).
-const TRUSTED_PROXY_HOPS = Math.max(
-  0,
-  Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '0', 10) || 0,
-);
+// 'auto' = detectar el proxy por la IP del par; 0 = ignorar cabeceras; N = saltos.
+const RAW_TRUST_PROXY_HOPS = process.env.TRUST_PROXY_HOPS?.trim();
+const PARSED_PROXY_HOPS = Number(RAW_TRUST_PROXY_HOPS);
+const TRUSTED_PROXY_HOPS: ProxyTrust =
+  RAW_TRUST_PROXY_HOPS === undefined || RAW_TRUST_PROXY_HOPS === ''
+    ? 'auto'
+    : Number.isInteger(PARSED_PROXY_HOPS) && PARSED_PROXY_HOPS >= 0
+      ? PARSED_PROXY_HOPS
+      : 'auto';
 // Las cabeceras CF-* solo se usan si Cloudflare está delante (opt-in).
 const TRUST_CF_HEADERS = process.env.TRUST_CF_HEADERS === '1';
 const MAX_WS_CONNECTIONS = readPositiveInt(process.env.MAX_WS_CONNECTIONS, 5000);
@@ -61,7 +66,10 @@ const presence = new PresenceStore({ maxCities: MAX_PRESENCE_CITIES });
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', TRUSTED_PROXY_HOPS > 0 ? TRUSTED_PROXY_HOPS : false);
+app.set(
+  'trust proxy',
+  TRUSTED_PROXY_HOPS === 'auto' ? 1 : TRUSTED_PROXY_HOPS > 0 ? TRUSTED_PROXY_HOPS : false,
+);
 
 // Baseline security headers. Directives shared by both environments live in
 // one place so production and development cannot drift apart.
@@ -353,6 +361,7 @@ const wss = new WebSocketServer({
 const ipAttemptBuckets = new Map<string, RateBucket>();
 const wsConnectionsPerIp = new Map<string, number>();
 const sessionSockets = new Map<string, WebSocket>();
+let warnedUnknownGeo = false;
 
 function rejectUpgrade(
   socket: { write: (chunk: string) => unknown; destroy: () => void },
@@ -417,6 +426,13 @@ wss.on('connection', (ws, req) => {
     (ip) => geoip.lookup(ip),
     { trustedProxyHops: TRUSTED_PROXY_HOPS, trustCfHeaders: TRUST_CF_HEADERS },
   );
+
+  if (cityMeta.key === 'unknown' && !warnedUnknownGeo) {
+    warnedUnknownGeo = true;
+    console.warn(
+      '[server] First connection without geolocation: check that the proxy forwards X-Forwarded-For (or set TRUST_CF_HEADERS=1 behind Cloudflare).',
+    );
+  }
 
   const assignedCity = presence.addSession(sessionId, cityMeta, Date.now());
   sessionSockets.set(sessionId, ws);
@@ -541,7 +557,7 @@ async function start(): Promise<void> {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Planeta Lo-Fi server listening on http://localhost:${PORT}`);
     console.log(
-      `[server] client IP: hops=${TRUSTED_PROXY_HOPS} cf-headers=${TRUST_CF_HEADERS ? 'on' : 'off'}`,
+      `[server] client IP: trust=${TRUSTED_PROXY_HOPS} cf-headers=${TRUST_CF_HEADERS ? 'on' : 'off'}`,
     );
     if (IS_PRODUCTION && TRUSTED_PROXY_HOPS === 0) {
       console.warn(

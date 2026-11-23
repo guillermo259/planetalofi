@@ -26,8 +26,8 @@ RUN mkdir -p /app/data && chown -R node:node /app/data
 ENV NODE_ENV=production
 ENV PORT=3090
 ENV DATA_DIR=/app/data
-# 1 proxy de confianza (Dokploy/Traefik); usar 0 si el contenedor se expone directo.
-ENV TRUST_PROXY_HOPS=1
+# La IP del cliente se detecta automáticamente: si el par es una IP interna se
+# leen las cabeceras del proxy. Forzar saltos: TRUST_PROXY_HOPS=1
 
 USER node
 

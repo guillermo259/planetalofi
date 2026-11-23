@@ -133,15 +133,34 @@ test('resolveClientIp skips private proxy hops to reach the real client', () => 
     ),
     '172.18.0.3',
   );
-  // CF-Connecting-IP como respaldo si la cadena no aporta una IP pública.
+  // CF-Connecting-IP no se usa salvo con Cloudflare declarado.
   assert.equal(
     resolveClientIp(
       { 'x-forwarded-for': '172.18.0.2', 'cf-connecting-ip': '203.0.113.9' },
       '172.18.0.3',
       1,
     ),
-    '203.0.113.9',
+    '172.18.0.3',
   );
+});
+
+test('resolveClientIp auto-detects the proxy from a private peer', () => {
+  const headers = { 'x-forwarded-for': '203.0.113.9, 172.18.0.2' };
+  // Par privado (detrás de Traefik/Docker): se usan las cabeceras.
+  assert.equal(resolveClientIp(headers, '172.18.0.3'), '203.0.113.9');
+  // Par público (expuesto directo): la cabecera es falsificable y se ignora.
+  assert.equal(resolveClientIp(headers, '198.51.100.20'), '198.51.100.20');
+  // 0 fuerza a ignorar cabeceras incluso detrás de un proxy.
+  assert.equal(resolveClientIp(headers, '172.18.0.3', 0), '172.18.0.3');
+});
+
+test('resolveClientIp uses CF-Connecting-IP only when Cloudflare is declared', () => {
+  const headers = {
+    'x-forwarded-for': '172.18.0.2',
+    'cf-connecting-ip': '203.0.113.9',
+  };
+  assert.equal(resolveClientIp(headers, '172.18.0.3', 'auto', false), '172.18.0.3');
+  assert.equal(resolveClientIp(headers, '172.18.0.3', 'auto', true), '203.0.113.9');
 });
 
 test('resolveLocationFromRequest resolves the client behind extra proxy hops', () => {

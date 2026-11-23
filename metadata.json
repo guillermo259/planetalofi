@@ -1,0 +1,6 @@
+{
+  "name": "Planeta Lo-Fi",
+  "description": "Radio lo-fi sincronizada globalmente y sonidos ambientales sobre un globo 3D con presencia en tiempo real por ciudad.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

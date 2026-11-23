@@ -18,7 +18,7 @@ test('parseAllowedOrigins ignores placeholder MY_APP_URL', () => {
   assert.equal(set.size, 0);
 });
 
-test('isOriginAllowed permits same-host, localhost, empty origin, and configured origins', () => {
+test('isOriginAllowed permits same-host, empty origin and configured origins', () => {
   const configured = parseAllowedOrigins(
     undefined,
     'https://user.github.io',
@@ -30,6 +30,12 @@ test('isOriginAllowed permits same-host, localhost, empty origin, and configured
   );
   assert.equal(
     isOriginAllowed('http://localhost:5173', 'api.example.com', configured),
+    false,
+  );
+  assert.equal(
+    isOriginAllowed('http://localhost:5173', 'api.example.com', configured, {
+      allowLocalhost: true,
+    }),
     true,
   );
   assert.equal(

@@ -34,6 +34,11 @@ export function parseAllowedOrigins(
   return origins;
 }
 
+export interface OriginPolicy {
+  /** Permite orígenes locales (localhost); solo debe activarse en desarrollo. */
+  allowLocalhost?: boolean;
+}
+
 /**
  * Checks whether an HTTP/WebSocket Origin header is permitted.
  */
@@ -41,12 +46,18 @@ export function isOriginAllowed(
   origin: string | undefined,
   hostHeader: string | undefined,
   configuredOrigins: ReadonlySet<string>,
+  policy: OriginPolicy = {},
 ): boolean {
   if (!origin) return true;
   try {
     const parsed = new URL(origin);
     if (hostHeader && parsed.host === hostHeader) return true;
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+    if (
+      policy.allowLocalhost === true &&
+      (parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === '[::1]')
+    ) {
       return true;
     }
     return configuredOrigins.has(parsed.origin);

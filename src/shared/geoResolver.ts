@@ -81,19 +81,33 @@ export interface GeoLookupResult {
   ll?: [number, number] | null;
 }
 
-export function extractClientIp(
+/**
+ * Resolves the client IP honoring only the configured number of trusted
+ * proxies. With trustedProxyHops = 0 the socket address is authoritative.
+ * X-Forwarded-For is read from the right (the entry appended by the outermost
+ * trusted proxy), never from the left where clients can inject values.
+ */
+export function resolveClientIp(
   headers: Record<string, string | string[] | undefined>,
   socketRemoteAddress: string | undefined,
+  trustedProxyHops = 0,
 ): string | null {
-  const xff = headers['x-forwarded-for'];
-  const rawXff = Array.isArray(xff) ? xff[0] : xff;
-  if (rawXff) {
-    const first = rawXff.split(',')[0]?.trim();
-    if (first) return stripIpv6Prefix(first);
+  if (trustedProxyHops > 0) {
+    const xff = headers['x-forwarded-for'];
+    const rawXff = Array.isArray(xff) ? xff.join(',') : xff;
+    if (rawXff) {
+      const hops = rawXff
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const index = hops.length - trustedProxyHops;
+      if (index >= 0 && hops[index]) return stripIpv6Prefix(hops[index]);
+    }
+
+    const cfIp = headers['cf-connecting-ip'];
+    const rawCf = Array.isArray(cfIp) ? cfIp[0] : cfIp;
+    if (rawCf) return stripIpv6Prefix(rawCf.trim());
   }
-  const cfIp = headers['cf-connecting-ip'];
-  const rawCf = Array.isArray(cfIp) ? cfIp[0] : cfIp;
-  if (rawCf) return stripIpv6Prefix(rawCf.trim());
 
   if (socketRemoteAddress) return stripIpv6Prefix(socketRemoteAddress.trim());
   return null;
@@ -134,30 +148,86 @@ function getHeaderStr(
   return s && s.trim().length > 0 ? s.trim() : null;
 }
 
+const MAX_CITY_NAME_LENGTH = 64;
+const MAX_REGION_LENGTH = 64;
+
+const UNKNOWN_LOCATION: ResolvedCityMetadata = {
+  key: 'unknown',
+  name: 'Ubicación desconocida',
+  region: '',
+  country: '',
+  countryCode: '',
+  lat: null,
+  lon: null,
+};
+
+/** Cleans and truncates client-controlled text before broadcasting it. */
+function clampText(value: string | null, maxLength: number): string | null {
+  if (!value) return null;
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.length > maxLength ? cleaned.slice(0, maxLength).trim() : cleaned;
+}
+
+function isValidLatitude(value: number): boolean {
+  return Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function isValidLongitude(value: number): boolean {
+  return Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+export interface GeoResolutionOptions {
+  /** Nº de proxies de confianza delante del proceso (0 = ninguno). */
+  trustedProxyHops?: number;
+  /** Aceptar cabeceras CF-* (solo si Cloudflare está delante). */
+  trustCfHeaders?: boolean;
+}
+
 /**
  * Resolves approximate city/country metadata from headers or offline GeoIP.
  * Never persists or logs the IP address.
+ *
+ * Header data is only trusted when explicitly configured: CF-* needs
+ * Cloudflare in front, and X-Forwarded-For needs trusted proxy hops.
  */
 export function resolveLocationFromRequest(
   headers: Record<string, string | string[] | undefined>,
   socketRemoteAddress: string | undefined,
   geoLookupFn: (ip: string) => GeoLookupResult | null,
+  options: GeoResolutionOptions = {},
 ): ResolvedCityMetadata {
-  // 1. Cloudflare proxy headers if available
-  const cfCity = getHeaderStr(headers, 'cf-ipcity');
-  const cfRegion = getHeaderStr(headers, 'cf-region-code') ?? getHeaderStr(headers, 'cf-region');
-  const cfCountry = getHeaderStr(headers, 'cf-ipcountry');
+  const trustedProxyHops = Math.max(0, options.trustedProxyHops ?? 0);
+  const trustCfHeaders = options.trustCfHeaders === true;
+
+  // 1. Cloudflare proxy headers (opt-in, clamped)
+  const cfCity = clampText(getHeaderStr(headers, 'cf-ipcity'), MAX_CITY_NAME_LENGTH);
+  const cfRegion = clampText(
+    getHeaderStr(headers, 'cf-region-code') ?? getHeaderStr(headers, 'cf-region'),
+    MAX_REGION_LENGTH,
+  );
+  const cfCountryRaw = clampText(getHeaderStr(headers, 'cf-ipcountry'), 8);
+  const cfCountry = cfCountryRaw ? cfCountryRaw.toUpperCase() : null;
   const cfLat = getHeaderStr(headers, 'cf-iplatitude');
   const cfLon = getHeaderStr(headers, 'cf-iplongitude');
 
-  if (cfCountry && cfCountry !== 'XX' && cfCountry !== 'T1') {
-    const cc = cfCountry.toUpperCase();
+  if (
+    trustCfHeaders &&
+    cfCountry &&
+    /^[A-Z]{2}$/.test(cfCountry) &&
+    cfCountry !== 'XX' &&
+    cfCountry !== 'T1'
+  ) {
+    const cc = cfCountry;
     const countryMeta = COUNTRY_CENTROIDS[cc];
     const countryName = countryMeta?.name ?? cc;
-    if (cfCity && cfLat && cfLon) {
+    if (cfCity && cfLat !== null && cfLon !== null) {
       const lat = Number(cfLat);
       const lon = Number(cfLon);
-      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      if (isValidLatitude(lat) && isValidLongitude(lon)) {
         return {
           key: buildCityKey(cfCity, cfRegion, cc),
           name: cfCity,
@@ -183,23 +253,26 @@ export function resolveLocationFromRequest(
   }
 
   // 2. Offline GeoIP lookup on non-private IP (discarded immediately)
-  const ip = extractClientIp(headers, socketRemoteAddress);
+  const ip = resolveClientIp(headers, socketRemoteAddress, trustedProxyHops);
   if (ip && !isPrivateOrLoopbackIp(ip)) {
     const geo = geoLookupFn(ip);
     if (geo && geo.country) {
       const cc = geo.country.toUpperCase();
       const countryMeta = COUNTRY_CENTROIDS[cc];
       const countryName = countryMeta?.name ?? cc;
+      const cityName = clampText(geo.city ?? null, MAX_CITY_NAME_LENGTH);
+      const regionName =
+        clampText(geo.region ?? null, MAX_REGION_LENGTH) ?? '';
       const hasCoords =
         Array.isArray(geo.ll) &&
-        Number.isFinite(geo.ll[0]) &&
-        Number.isFinite(geo.ll[1]);
+        isValidLatitude(geo.ll[0]) &&
+        isValidLongitude(geo.ll[1]);
 
-      if (geo.city && hasCoords && geo.ll) {
+      if (cityName && hasCoords && geo.ll) {
         return {
-          key: buildCityKey(geo.city, geo.region, cc),
-          name: geo.city,
-          region: geo.region ?? '',
+          key: buildCityKey(cityName, regionName, cc),
+          name: cityName,
+          region: regionName,
           country: countryName,
           countryCode: cc,
           lat: roundCityCoord(geo.ll[0]),
@@ -234,13 +307,5 @@ export function resolveLocationFromRequest(
   }
 
   // 3. Fallback when neither city nor country is available (VPN, IPv6, localhost)
-  return {
-    key: 'unknown',
-    name: 'Ubicación desconocida',
-    region: '',
-    country: '',
-    countryCode: '',
-    lat: null,
-    lon: null,
-  };
+  return { ...UNKNOWN_LOCATION };
 }

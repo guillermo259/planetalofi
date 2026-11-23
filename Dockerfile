@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim
+# Base fijada por digest (etiqueta 22-bookworm-slim, 2026-11-11) para builds reproducibles.
+FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 WORKDIR /app
 
@@ -9,9 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('package.json','utf8'));const keep=['better-sqlite3','dotenv','express','geoip-lite','ws'];const deps=Object.fromEntries(keep.map(k=>[k,p.dependencies[k]]));fs.writeFileSync('package.json',JSON.stringify({name:p.name,type:p.type,private:true,scripts:{start:p.scripts.start},dependencies:deps},null,2));" \
-  && npm install --omit=dev --no-audit --no-fund \
+# Installs exactly the versions pinned in package-lock.json (runtime only).
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund \
   && apt-get purge -y --auto-remove python3 make g++ \
   && rm -rf /root/.npm
 
@@ -19,11 +20,16 @@ COPY server.ts ./
 COPY src/server ./src/server
 COPY src/shared ./src/shared
 
-RUN mkdir -p /app/data
+# Only the data directory needs to be writable by the runtime user.
+RUN mkdir -p /app/data && chown -R node:node /app/data
 
 ENV NODE_ENV=production
 ENV PORT=3090
 ENV DATA_DIR=/app/data
+# 1 proxy de confianza (Dokploy/Traefik); usar 0 si el contenedor se expone directo.
+ENV TRUST_PROXY_HOPS=1
+
+USER node
 
 EXPOSE 3090
 

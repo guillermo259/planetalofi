@@ -65,11 +65,38 @@ export interface ResolvedCityMetadata {
  * In-memory live presence store with aggregated diff batching.
  * Stores no IP addresses and no persistent history.
  */
+export interface PresenceStoreOptions {
+  /** Máximo de ciudades distintas monitorizadas (evita crecimiento sin cota). */
+  maxCities?: number;
+}
+
+const DEFAULT_MAX_CITIES = 500;
+
+// Bucket compartido para sesiones que exceden el máximo de ciudades.
+const UNKNOWN_CITY_META: ResolvedCityMetadata = {
+  key: 'unknown',
+  name: '',
+  region: '',
+  country: '',
+  countryCode: '',
+  lat: null,
+  lon: null,
+};
+
 export class PresenceStore {
   private sessions = new Map<string, SessionRecord>();
   private cities = new Map<string, CityPresence>();
   private dirtyKeys = new Set<string>();
   private totalChanged = false;
+  private maxCities: number;
+
+  constructor(options: PresenceStoreOptions = {}) {
+    const requested = options.maxCities;
+    this.maxCities =
+      requested && Number.isInteger(requested) && requested > 0
+        ? requested
+        : DEFAULT_MAX_CITIES;
+  }
 
   addSession(
     sessionId: string,
@@ -80,26 +107,32 @@ export class PresenceStore {
       this.removeSession(sessionId);
     }
 
+    // Cap de ciudades: una clave nueva por encima del límite cae en "unknown".
+    const effectiveMeta =
+      this.cities.has(meta.key) || this.cities.size < this.maxCities
+        ? meta
+        : UNKNOWN_CITY_META;
+
     this.sessions.set(sessionId, {
       id: sessionId,
-      cityKey: meta.key,
+      cityKey: effectiveMeta.key,
       lastSeenMs: nowMs,
     });
 
-    const existing = this.cities.get(meta.key);
+    const existing = this.cities.get(effectiveMeta.key);
     if (existing) {
       existing.n += 1;
     } else {
-      this.cities.set(meta.key, {
-        ...meta,
+      this.cities.set(effectiveMeta.key, {
+        ...effectiveMeta,
         n: 1,
       });
     }
 
-    this.dirtyKeys.add(meta.key);
+    this.dirtyKeys.add(effectiveMeta.key);
     this.totalChanged = true;
 
-    return { ...this.cities.get(meta.key)! };
+    return { ...this.cities.get(effectiveMeta.key)! };
   }
 
   touchSession(sessionId: string, nowMs = Date.now()): void {

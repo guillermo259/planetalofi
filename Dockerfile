@@ -10,7 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund \
+RUN node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('package.json','utf8'));const keep=['better-sqlite3','dotenv','express','geoip-lite','ws'];const deps=Object.fromEntries(keep.map(k=>[k,p.dependencies[k]]));fs.writeFileSync('package.json',JSON.stringify({name:p.name,type:p.type,private:true,scripts:{start:p.scripts.start},dependencies:deps},null,2));" \
+  && npm install --omit=dev --no-audit --no-fund \
   && apt-get purge -y --auto-remove python3 make g++ \
   && rm -rf /root/.npm
 

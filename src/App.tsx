@@ -14,6 +14,7 @@ import {
   type AmbientChannel,
   type AudioEngineSnapshot,
 } from './audio/audioEngine.ts';
+import appMarkUrl from './assets/planeta-lofi-favicon.svg';
 import { CitiesDrawer } from './components/CitiesDrawer.tsx';
 import { ControlDock } from './components/ControlDock.tsx';
 import { EntryModal } from './components/EntryModal.tsx';
@@ -277,6 +278,13 @@ export default function App() {
           <div
             className={`pointer-events-auto rounded-2xl border px-3.5 sm:px-4 py-2.5 flex flex-wrap items-center gap-x-2.5 sm:gap-x-3 gap-y-1 transition-colors ${hudSurfaceClass}`}
           >
+            <img
+              src={appMarkUrl}
+              alt=""
+              aria-hidden="true"
+              className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg shrink-0"
+              draggable={false}
+            />
             <span className="font-display text-sm sm:text-lg font-semibold tracking-tight whitespace-nowrap shrink-0">
               {t.appName}
             </span>

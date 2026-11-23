@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="240" viewBox="0 0 920 240" fill="none">
+  <defs>
+    <linearGradient id="planet" x1="75" y1="35" x2="210" y2="190" gradientUnits="userSpaceOnUse"><stop stop-color="#182D59"/><stop offset=".55" stop-color="#09152D"/><stop offset="1" stop-color="#030711"/></linearGradient>
+    <linearGradient id="rim" x1="48" y1="38" x2="211" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="#AFC9FF"/><stop offset=".45" stop-color="#477DD8"/><stop offset="1" stop-color="#263B70"/></linearGradient>
+    <linearGradient id="type" x1="300" y1="55" x2="650" y2="190" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#AAB9EF"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="clip"><circle cx="132" cy="120" r="77"/></clipPath>
+  </defs>
+  <g>
+    <circle cx="132" cy="120" r="77" fill="url(#planet)" stroke="url(#rim)" stroke-width="2.5"/>
+    <g clip-path="url(#clip)" stroke="#5274B2" stroke-opacity=".32" stroke-width="1.5">
+      <path d="M52 120h160M61 82c39 22 103 22 142 0M61 158c39-22 103-22 142 0"/>
+      <path d="M132 42c-31 28-42 54-42 78s11 50 42 78M132 42c31 28 42 54 42 78s-11 50-42 78"/>
+      <path d="M72 104c22 12 39 15 60 15s38-3 60-15" stroke="#E9B85B" stroke-opacity=".48"/>
+    </g>
+    <ellipse cx="132" cy="120" rx="111" ry="36" transform="rotate(-24 132 120)" stroke="#AFC8FF" stroke-width="2"/>
+    <path d="M225 79l5 10 10 5-10 5-5 10-5-10-10-5 10-5 5-10Z" fill="#DCE8FF" filter="url(#glow)"/>
+    <circle cx="132" cy="120" r="77" stroke="#79A9FF" stroke-opacity=".45" stroke-width="1" filter="url(#glow)"/>
+  </g>
+  <path d="M292 48v144" stroke="#65749B" stroke-width="2"/>
+  <text x="332" y="112" fill="url(#type)" font-family="Inter, Avenir, Montserrat, Arial, sans-serif" font-size="66" font-weight="500" letter-spacing="-2">Planeta</text>
+  <text x="335" y="183" fill="#AAB9EF" font-family="Inter, Avenir, Montserrat, Arial, sans-serif" font-size="62" font-weight="400" letter-spacing="4">Lo-Fi</text>
+</svg>

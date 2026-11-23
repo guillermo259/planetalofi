@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="55" y1="35" x2="450" y2="485" gradientUnits="userSpaceOnUse"><stop stop-color="#111B38"/><stop offset="1" stop-color="#050914"/></linearGradient>
+    <linearGradient id="p" x1="142" y1="111" x2="368" y2="399" gradientUnits="userSpaceOnUse"><stop stop-color="#244477"/><stop offset=".55" stop-color="#0B1831"/><stop offset="1" stop-color="#030711"/></linearGradient>
+    <linearGradient id="edge" x1="115" y1="112" x2="390" y2="399" gradientUnits="userSpaceOnUse"><stop stop-color="#B9D0FF"/><stop offset=".5" stop-color="#5D8FE9"/><stop offset="1" stop-color="#263D73"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="c"><circle cx="256" cy="256" r="124"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#bg)" stroke="#52618A" stroke-opacity=".65" stroke-width="8"/>
+  <circle cx="256" cy="256" r="124" fill="url(#p)" stroke="url(#edge)" stroke-width="4"/>
+  <g clip-path="url(#c)" stroke="#7192C9" stroke-opacity=".42" stroke-width="3">
+    <path d="M126 256h260M142 198c68 37 160 37 228 0M142 314c68-37 160-37 228 0"/>
+    <path d="M256 130c-51 45-68 86-68 126s17 81 68 126M256 130c51 45 68 86 68 126s-17 81-68 126"/>
+  </g>
+  <ellipse cx="256" cy="256" rx="177" ry="58" transform="rotate(-24 256 256)" stroke="#B8CEFF" stroke-width="5"/>
+  <path d="M405 179l9 19 19 9-19 9-9 19-9-19-19-9 19-9 9-19Z" fill="#E7F0FF" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="124" stroke="#77A9FF" stroke-opacity=".5" stroke-width="4" filter="url(#glow)"/>
+</svg>

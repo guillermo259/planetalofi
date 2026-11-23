@@ -1,4 +1,5 @@
 import { Volume2 } from 'lucide-react';
+import logoUrl from '../assets/planeta-lofi-logo.svg';
 import { useI18n } from '../i18n/I18nContext.tsx';
 import type { LegalTab } from './LegalModal.tsx';
 
@@ -27,11 +28,13 @@ export function EntryModal({
     >
       <div className="w-full max-w-md rounded-3xl glass-panel-night p-6 sm:p-7 text-slate-100">
         <div className="space-y-2">
-          <h1
-            id="entry-modal-title"
-            className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-white text-balance"
-          >
-            {t.appName}
+          <h1 id="entry-modal-title" className="text-balance">
+            <img
+              src={logoUrl}
+              alt={t.appName}
+              className="h-14 sm:h-16 w-auto"
+              draggable={false}
+            />
           </h1>
           <p className="text-sm sm:text-[15px] leading-relaxed text-slate-200/90">
             {t.tagline}

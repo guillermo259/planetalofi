@@ -13,6 +13,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { isOriginAllowed, parseAllowedOrigins } from './src/server/cors.ts';
 import { initDatabase } from './src/server/db.ts';
 import {
+  describeClientNetwork,
   resolveClientIp,
   resolveLocationFromRequest,
   type ProxyTrust,
@@ -195,7 +196,9 @@ function clientIpHashFromHeaders(
   headers: Record<string, string | string[] | undefined>,
   remoteAddress: string | undefined,
 ): string {
-  return hashClientIp(resolveClientIp(headers, remoteAddress, TRUSTED_PROXY_HOPS));
+  return hashClientIp(
+    resolveClientIp(headers, remoteAddress, TRUSTED_PROXY_HOPS, TRUST_CF_HEADERS),
+  );
 }
 
 function createHttpRateLimiter(maxPerMinute: number) {
@@ -216,14 +219,31 @@ const apiRateLimiter = createHttpRateLimiter(HTTP_API_LIMIT_PER_MINUTE);
 const audioRateLimiter = createHttpRateLimiter(HTTP_AUDIO_LIMIT_PER_MINUTE);
 
 // Healthcheck endpoint for Dokploy / container orchestrators
-app.get(['/health', '/api/health'], (_req, res) => {
+app.get(['/health', '/api/health'], (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  const location = resolveLocationFromRequest(
+    req.headers,
+    req.socket.remoteAddress,
+    (ip) => geoip.lookup(ip),
+    { trustedProxyHops: TRUSTED_PROXY_HOPS, trustCfHeaders: TRUST_CF_HEADERS },
+  );
   res.json({
     status: 'ok',
     tracks: radioState.tracks.length,
     listeners: presence.getSnapshot().total,
     // Solo agregados por país: ni IPs ni ciudades.
     geo: presence.getGeoSummary(),
+    // Diagnóstico de quien consulta: clases y origen, nunca direcciones.
+    net: {
+      ...describeClientNetwork(
+        req.headers,
+        req.socket.remoteAddress,
+        TRUSTED_PROXY_HOPS,
+        TRUST_CF_HEADERS,
+      ),
+      located: location.key !== 'unknown',
+      country: location.countryCode || null,
+    },
   });
 });
 

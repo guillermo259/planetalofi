@@ -7,6 +7,7 @@ import {
   roundCityCoord,
 } from './presenceLogic.ts';
 import {
+  describeClientNetwork,
   resolveClientIp,
   resolveLocationFromRequest,
 } from './geoResolver.ts';
@@ -161,6 +162,41 @@ test('resolveClientIp uses CF-Connecting-IP only when Cloudflare is declared', (
   };
   assert.equal(resolveClientIp(headers, '172.18.0.3', 'auto', false), '172.18.0.3');
   assert.equal(resolveClientIp(headers, '172.18.0.3', 'auto', true), '203.0.113.9');
+});
+
+test('describeClientNetwork explains a chain that yields no public client IP', () => {
+  const info = describeClientNetwork(
+    { 'x-forwarded-for': '172.18.0.2' },
+    '172.18.0.3',
+  );
+  assert.deepEqual(info, {
+    trust: 'auto',
+    cfHeaders: false,
+    peer: 'private',
+    forwarded: 1,
+    hopClasses: ['private'],
+    cfConnectingIp: false,
+    xRealIp: false,
+    source: 'socket',
+    client: 'private',
+  });
+});
+
+test('describeClientNetwork exposes the two-public-hop edge case', () => {
+  const headers = {
+    'x-forwarded-for': '181.49.0.1, 162.158.1.1',
+    'cf-connecting-ip': '181.49.0.1',
+  };
+  const info = describeClientNetwork(headers, '172.18.0.3');
+  assert.equal(info.forwarded, 2);
+  assert.deepEqual(info.hopClasses, ['public', 'public']);
+  assert.equal(info.cfConnectingIp, true);
+  // Sin opt-in se mide el último salto público (p. ej. el edge de Cloudflare).
+  assert.equal(info.source, 'x-forwarded-for');
+  assert.equal(info.client, 'public');
+
+  const withCf = describeClientNetwork(headers, '172.18.0.3', 'auto', true);
+  assert.equal(withCf.source, 'cf-connecting-ip');
 });
 
 test('resolveLocationFromRequest resolves the client behind extra proxy hops', () => {

@@ -96,12 +96,56 @@ export type ProxyTrust = number | 'auto';
  * walks left past private addresses, so chains with extra internal hops still
  * resolve the real client instead of a proxy container IP.
  */
-export function resolveClientIp(
+export type IpSource = 'cf-connecting-ip' | 'x-forwarded-for' | 'socket' | 'none';
+export type IpClass = 'public' | 'private' | 'invalid';
+
+export interface ResolvedClientIp {
+  ip: string | null;
+  source: IpSource;
+}
+
+/** Diagnóstico de la conexión que consulta: clases, nunca direcciones. */
+export interface ClientNetworkInfo {
+  trust: ProxyTrust;
+  cfHeaders: boolean;
+  peer: IpClass;
+  forwarded: number;
+  hopClasses: IpClass[];
+  cfConnectingIp: boolean;
+  xRealIp: boolean;
+  source: IpSource;
+  client: IpClass;
+}
+
+function parseXff(
+  headers: Record<string, string | string[] | undefined>,
+): string[] {
+  const xff = headers['x-forwarded-for'];
+  const rawXff = Array.isArray(xff) ? xff.join(',') : xff;
+  if (!rawXff) return [];
+  return rawXff
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function classifyIp(value: string | null): IpClass {
+  if (!value) return 'invalid';
+  const ip = stripIpv6Prefix(value.trim());
+  const isIpv4 =
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip) &&
+    ip.split('.').every((part) => Number(part) <= 255);
+  const isIpv6 = ip.includes(':') && /^[0-9a-fA-F:.]+$/.test(ip);
+  if (!isIpv4 && !isIpv6) return 'invalid';
+  return isPrivateOrLoopbackIp(ip) ? 'private' : 'public';
+}
+
+export function resolveClientIpDetailed(
   headers: Record<string, string | string[] | undefined>,
   socketRemoteAddress: string | undefined,
   trust: ProxyTrust = 'auto',
   trustCfConnectingIp = false,
-): string | null {
+): ResolvedClientIp {
   const socketIp = socketRemoteAddress
     ? stripIpv6Prefix(socketRemoteAddress.trim())
     : null;
@@ -114,16 +158,11 @@ export function resolveClientIp(
     const cfIp = rawCf ? stripIpv6Prefix(rawCf.trim()) : null;
     // Solo con Cloudflare declarado: si no, el cliente puede falsificarlo.
     if (trustCfConnectingIp && cfIp && !isPrivateOrLoopbackIp(cfIp)) {
-      return cfIp;
+      return { ip: cfIp, source: 'cf-connecting-ip' };
     }
 
-    const xff = headers['x-forwarded-for'];
-    const rawXff = Array.isArray(xff) ? xff.join(',') : xff;
-    if (rawXff) {
-      const hops = rawXff
-        .split(',')
-        .map((part) => part.trim())
-        .filter(Boolean);
+    const hops = parseXff(headers);
+    if (hops.length > 0) {
       const trustedHops = typeof trust === 'number' ? Math.max(1, trust) : 1;
       for (
         let index = Math.max(0, hops.length - trustedHops);
@@ -131,12 +170,54 @@ export function resolveClientIp(
         index -= 1
       ) {
         const candidate = stripIpv6Prefix(hops[index]);
-        if (!isPrivateOrLoopbackIp(candidate)) return candidate;
+        if (!isPrivateOrLoopbackIp(candidate)) {
+          return { ip: candidate, source: 'x-forwarded-for' };
+        }
       }
     }
   }
 
-  return socketIp;
+  return { ip: socketIp, source: socketIp ? 'socket' : 'none' };
+}
+
+export function describeClientNetwork(
+  headers: Record<string, string | string[] | undefined>,
+  socketRemoteAddress: string | undefined,
+  trust: ProxyTrust = 'auto',
+  trustCfConnectingIp = false,
+): ClientNetworkInfo {
+  const resolved = resolveClientIpDetailed(
+    headers,
+    socketRemoteAddress,
+    trust,
+    trustCfConnectingIp,
+  );
+  const hops = parseXff(headers);
+  return {
+    trust,
+    cfHeaders: trustCfConnectingIp,
+    peer: classifyIp(socketRemoteAddress ?? null),
+    forwarded: hops.length,
+    hopClasses: hops.slice(0, 10).map((hop) => classifyIp(hop)),
+    cfConnectingIp: headers['cf-connecting-ip'] !== undefined,
+    xRealIp: headers['x-real-ip'] !== undefined,
+    source: resolved.source,
+    client: classifyIp(resolved.ip),
+  };
+}
+
+export function resolveClientIp(
+  headers: Record<string, string | string[] | undefined>,
+  socketRemoteAddress: string | undefined,
+  trust: ProxyTrust = 'auto',
+  trustCfConnectingIp = false,
+): string | null {
+  return resolveClientIpDetailed(
+    headers,
+    socketRemoteAddress,
+    trust,
+    trustCfConnectingIp,
+  ).ip;
 }
 
 function stripIpv6Prefix(ip: string): string {

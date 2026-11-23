@@ -321,45 +321,37 @@ export function resolveLocationFromRequest(
   const cfLat = getHeaderStr(headers, 'cf-iplatitude');
   const cfLon = getHeaderStr(headers, 'cf-iplongitude');
 
-  if (
+  const validCfCountry =
     trustCfHeaders &&
     cfCountry &&
     /^[A-Z]{2}$/.test(cfCountry) &&
     cfCountry !== 'XX' &&
     cfCountry !== 'T1'
-  ) {
-    const cc = cfCountry;
-    const countryMeta = COUNTRY_CENTROIDS[cc];
-    const countryName = countryMeta?.name ?? cc;
-    if (cfCity && cfLat !== null && cfLon !== null) {
-      const lat = Number(cfLat);
-      const lon = Number(cfLon);
-      if (isValidLatitude(lat) && isValidLongitude(lon)) {
-        return {
-          key: buildCityKey(cfCity, cfRegion, cc),
-          name: cfCity,
-          region: cfRegion ?? '',
-          country: countryName,
-          countryCode: cc,
-          lat: roundCityCoord(lat),
-          lon: roundCityCoord(lon),
-        };
-      }
-    }
-    if (countryMeta) {
+      ? cfCountry
+      : null;
+
+  // 1. Ciudad de Cloudflare (add-on de geolocalización): la más precisa.
+  if (validCfCountry && cfCity && cfLat !== null && cfLon !== null) {
+    const lat = Number(cfLat);
+    const lon = Number(cfLon);
+    if (isValidLatitude(lat) && isValidLongitude(lon)) {
+      const countryMeta = COUNTRY_CENTROIDS[validCfCountry];
+      const countryName = countryMeta?.name ?? validCfCountry;
       return {
-        key: buildCityKey(null, null, cc),
-        name: countryMeta.name,
-        region: '',
-        country: countryMeta.name,
-        countryCode: cc,
-        lat: roundCityCoord(countryMeta.lat),
-        lon: roundCityCoord(countryMeta.lon),
+        key: buildCityKey(cfCity, cfRegion, validCfCountry),
+        name: cfCity,
+        region: cfRegion ?? '',
+        country: countryName,
+        countryCode: validCfCountry,
+        lat: roundCityCoord(lat),
+        lon: roundCityCoord(lon),
       };
     }
   }
 
-  // 2. Offline GeoIP lookup on non-private IP (discarded immediately)
+  // 2. Offline GeoIP lookup on non-private IP (discarded immediately).
+  // Con Cloudflare declarado se resuelve CF-Connecting-IP, así que aquí sale
+  // la ciudad real aunque CF-IPCountry solo traiga el país.
   const ip = resolveClientIp(
     headers,
     socketRemoteAddress,
@@ -418,6 +410,22 @@ export function resolveLocationFromRequest(
     }
   }
 
-  // 3. Fallback when neither city nor country is available (VPN, IPv6, localhost)
+  // 3. País de Cloudflare cuando GeoIP no tiene datos para la IP real.
+  if (validCfCountry) {
+    const countryMeta = COUNTRY_CENTROIDS[validCfCountry];
+    if (countryMeta) {
+      return {
+        key: buildCityKey(null, null, validCfCountry),
+        name: countryMeta.name,
+        region: '',
+        country: countryMeta.name,
+        countryCode: validCfCountry,
+        lat: roundCityCoord(countryMeta.lat),
+        lon: roundCityCoord(countryMeta.lon),
+      };
+    }
+  }
+
+  // 4. Fallback cuando no hay ciudad ni país (VPN, IP sin datos, localhost)
   return { ...UNKNOWN_LOCATION };
 }

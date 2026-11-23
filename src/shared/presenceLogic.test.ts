@@ -210,6 +210,32 @@ test('resolveLocationFromRequest resolves the client behind extra proxy hops', (
   assert.equal(resolved.name, 'Madrid');
 });
 
+test('resolveLocationFromRequest prefers the GeoIP city over the CF country', () => {
+  const headers = {
+    'x-forwarded-for': '172.18.0.2',
+    'cf-connecting-ip': '181.49.0.1',
+    'cf-ipcountry': 'CO',
+  };
+  const resolved = resolveLocationFromRequest(
+    headers,
+    '172.18.0.3',
+    () => ({ city: 'Bogotá', region: 'DC', country: 'CO', ll: [4.6493, -74.0617] }),
+    { trustCfHeaders: true },
+  );
+  assert.equal(resolved.key, 'bogota-dc-co');
+  assert.equal(resolved.name, 'Bogotá');
+
+  // Sin datos de GeoIP se conserva al menos el país de Cloudflare.
+  const countryOnly = resolveLocationFromRequest(
+    headers,
+    '172.18.0.3',
+    () => null,
+    { trustCfHeaders: true },
+  );
+  assert.equal(countryOnly.key, 'country-co');
+  assert.equal(countryOnly.name, 'Colombia');
+});
+
 test('resolveLocationFromRequest ignores and clamps spoofable geo headers', () => {
   const longName = 'X'.repeat(400);
 

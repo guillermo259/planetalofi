@@ -385,6 +385,10 @@ const wsConnectionsPerIp = new Map<string, number>();
 const sessionSockets = new Map<string, WebSocket>();
 let warnedUnknownGeo = false;
 
+// Marca de vida por socket: los pongs los responde el navegador aunque la
+// pestaña esté oculta, así que la sesión no depende de timers de JS.
+type LiveWebSocket = WebSocket & { isAlive: boolean };
+
 function rejectUpgrade(
   socket: { write: (chunk: string) => unknown; destroy: () => void },
   status: string,
@@ -458,6 +462,13 @@ wss.on('connection', (ws, req) => {
 
   const assignedCity = presence.addSession(sessionId, cityMeta, Date.now());
   sessionSockets.set(sessionId, ws);
+
+  const liveSocket = ws as LiveWebSocket;
+  liveSocket.isAlive = true;
+  ws.on('pong', () => {
+    liveSocket.isAlive = true;
+    presence.touchSession(sessionId, Date.now());
+  });
 
   const snapshot = presence.getSnapshot();
   sendJson(ws, {
@@ -546,6 +557,24 @@ setInterval(() => {
     pruneRateBuckets(buckets, now);
   }
 }, 20_000);
+
+// Keepalive de protocolo cada 25 s: un navegador en segundo plano responde el
+// pong aunque sus timers estén ralentizados, y el socket se cierra si no lo hace.
+setInterval(() => {
+  for (const client of wss.clients) {
+    const live = client as LiveWebSocket;
+    if (live.isAlive === false) {
+      client.terminate();
+      continue;
+    }
+    live.isAlive = false;
+    try {
+      client.ping();
+    } catch {
+      client.terminate();
+    }
+  }
+}, 25_000);
 
 async function start(): Promise<void> {
   if (!IS_PRODUCTION) {
